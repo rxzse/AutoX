@@ -10,6 +10,8 @@ import com.stardust.autojs.IndependentScriptService
 import com.stardust.autojs.execution.ExecutionConfig
 import com.stardust.autojs.script.ScriptFile
 import com.stardust.autojs.script.ScriptSource
+import com.stardust.notification.NotificationListenerService
+import io.reactivex.rxjava3.schedulers.Schedulers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.runBlocking
 import java.lang.ref.WeakReference
@@ -27,6 +29,7 @@ class ScriptBinder(service: IndependentScriptService, val scope: CoroutineScope)
                 Action.STOP_ALL_SCRIPT.id -> stopAllScript()
                 Action.REGISTER_GLOBAL_SCRIPT_LISTENER.id -> registerGlobalScriptListener(data)
                 Action.REGISTER_GLOBAL_CONSOLE_LISTENER.id -> registerGlobalConsoleListener(data)
+                Action.NOTIFICATION_LISTENER_SERVICE_STATUS.id -> notificationListenerServiceStatus(reply!!)
                 else -> Log.w(TAG, "unknown action id = $code")
             }
             Log.d(TAG, "action id = $code, complete")
@@ -55,7 +58,7 @@ class ScriptBinder(service: IndependentScriptService, val scope: CoroutineScope)
         val listener = bundle.getBinder(BinderScriptListener.TAG)?.let {
             BinderScriptListener.ServerInterface(it)
         }
-        Log.d(TAG,"engineName = ${taskInfo.engineName}")
+        Log.d(TAG, "engineName = ${taskInfo.engineName}")
         val source: ScriptSource = ScriptFile(taskInfo.sourcePath).toSource()
         AutoJs.instance.scriptEngineService.execute(
             source, listener,
@@ -82,12 +85,17 @@ class ScriptBinder(service: IndependentScriptService, val scope: CoroutineScope)
         val listener = BinderScriptListener.ServerInterface(binder)
         AutoJs.instance.scriptEngineService.registerGlobalScriptExecutionListener(listener)
     }
-    private fun registerGlobalConsoleListener(data: Parcel){
+
+    private fun registerGlobalConsoleListener(data: Parcel) {
         val binder = data.readStrongBinder()
         val listener = BinderConsoleListener.ServerInterface(binder)
-        val sub = AutoJs.instance.globalConsole.createObservable().subscribe {
-            listener.onPrintln(it)
-        }
+        val sub = AutoJs.instance.globalConsole.logPublish
+            .observeOn(Schedulers.single()).subscribe(listener::onPrintln)
+    }
+
+    private fun notificationListenerServiceStatus(reply: Parcel) {
+        reply.writeNoException()
+        reply.writeInt(if (NotificationListenerService.instance != null) 1 else 0)
     }
 
     enum class Action(val id: Int) {
@@ -99,6 +107,7 @@ class ScriptBinder(service: IndependentScriptService, val scope: CoroutineScope)
         STOP_ALL_SCRIPT(6),
         REGISTER_GLOBAL_SCRIPT_LISTENER(7),
         REGISTER_GLOBAL_CONSOLE_LISTENER(8),
+        NOTIFICATION_LISTENER_SERVICE_STATUS(9),
     }
 
     companion object {
